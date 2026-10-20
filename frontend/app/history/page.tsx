@@ -1,0 +1,423 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  AlertCircle,
+  Award,
+  BarChart3,
+  ChevronRight,
+  Inbox,
+  RefreshCw,
+  Search,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
+import ReportDrawer from "@/components/ReportDrawer";
+import {
+  getHistory,
+  getHistoryDetail,
+  isRequestCanceled,
+  type AnalysisDetail,
+  type HistoryItem,
+} from "@/lib/api";
+import { cn, formatDate, getScoreTone } from "@/lib/utils";
+
+type LoadStatus = "loading" | "ready" | "error";
+
+interface ChartPoint {
+  label: string;
+  score: number;
+  title: string;
+  file: string;
+  full: string;
+}
+
+function ChartTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: ChartPoint }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0].payload;
+  const tone = getScoreTone(point.score);
+
+  return (
+    <div className="max-w-[220px] rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg">
+      <p className="truncate font-semibold text-slate-900">{point.title}</p>
+      <p className="truncate text-slate-500">{point.file}</p>
+      <p className="mt-1 text-slate-400">{point.full}</p>
+      <p className={cn("mt-2 text-sm font-bold", tone.text)}>{point.score}/100</p>
+    </div>
+  );
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: typeof BarChart3;
+  label: string;
+  value: string;
+  hint?: ReactNode;
+}) {
+  return (
+    <div className="card !p-4">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <Icon className="h-4 w-4 text-brand-teal" aria-hidden />
+        {label}
+      </div>
+      <p className="mt-2 text-3xl font-bold tabular-nums text-slate-900">{value}</p>
+      {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
+    </div>
+  );
+}
+
+export default function HistoryPage() {
+  const [items, setItems] = useState<HistoryItem[]>([]);
+  const [status, setStatus] = useState<LoadStatus>("loading");
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<AnalysisDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  const loadHistory = useCallback(async (signal?: AbortSignal) => {
+    setStatus("loading");
+    setError(null);
+    try {
+      const data = await getHistory(100, 0, signal);
+      setItems(data);
+      setStatus("ready");
+    } catch (err) {
+      if (isRequestCanceled(err)) return;
+      setError(err instanceof Error ? err.message : "Failed to load history.");
+      setStatus("error");
+    }
+  }, []);
+
+  const loadDetail = useCallback(async (id: string, signal?: AbortSignal) => {
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const data = await getHistoryDetail(id, signal);
+      setDetail(data);
+    } catch (err) {
+      if (isRequestCanceled(err)) return;
+      setDetailError(err instanceof Error ? err.message : "Failed to load the report.");
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadHistory(controller.signal);
+    return () => controller.abort();
+  }, [loadHistory]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const controller = new AbortController();
+    setDetail(null);
+    void loadDetail(selectedId, controller.signal);
+    return () => controller.abort();
+  }, [selectedId, loadDetail]);
+
+  const closeDrawer = useCallback(() => setSelectedId(null), []);
+
+  // Chart data is chronological (the API returns newest first).
+  const chartData: ChartPoint[] = useMemo(
+    () =>
+      [...items]
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .map((item) => ({
+          label: formatDate(item.created_at, "short"),
+          score: item.overall_match_score,
+          title: item.job_title,
+          file: item.resume_filename,
+          full: formatDate(item.created_at, "long"),
+        })),
+    [items],
+  );
+
+  const stats = useMemo(() => {
+    if (!chartData.length) return null;
+    const scores = chartData.map((p) => p.score);
+    const latest = scores[scores.length - 1];
+    const previous = scores.length > 1 ? scores[scores.length - 2] : null;
+    return {
+      total: scores.length,
+      average: Math.round(scores.reduce((sum, s) => sum + s, 0) / scores.length),
+      best: Math.max(...scores),
+      latest,
+      delta: previous === null ? null : latest - previous,
+    };
+  }, [chartData]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(
+      (item) =>
+        item.job_title.toLowerCase().includes(q) ||
+        item.resume_filename.toLowerCase().includes(q),
+    );
+  }, [items, query]);
+
+  return (
+    <div>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-brand-navy">Analysis history</h1>
+          <p className="mt-1 text-slate-600">
+            Track your match score over time and revisit any past report.
+          </p>
+        </div>
+        <Link href="/" className="btn-primary">
+          <Sparkles className="h-4 w-4" aria-hidden />
+          New analysis
+        </Link>
+      </div>
+
+      {/* Loading skeleton */}
+      {status === "loading" && (
+        <div className="animate-pulse space-y-6" aria-busy="true" aria-label="Loading history">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-28 rounded-2xl bg-slate-200" />
+            ))}
+          </div>
+          <div className="h-80 rounded-2xl bg-slate-200" />
+          <div className="h-64 rounded-2xl bg-slate-200" />
+        </div>
+      )}
+
+      {/* Error */}
+      {status === "error" && (
+        <div
+          role="alert"
+          className="flex flex-col items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-800"
+        >
+          <p className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {error}
+          </p>
+          <button type="button" onClick={() => void loadHistory()} className="btn-secondary">
+            <RefreshCw className="h-4 w-4" aria-hidden />
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* Empty */}
+      {status === "ready" && items.length === 0 && (
+        <div className="card flex flex-col items-center py-14 text-center">
+          <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand-mint text-brand-teal">
+            <Inbox className="h-7 w-7" aria-hidden />
+          </span>
+          <h2 className="text-lg font-semibold text-slate-900">No analyses yet</h2>
+          <p className="mt-1 max-w-sm text-sm text-slate-500">
+            Run your first resume analysis and it will show up here with your score trend.
+          </p>
+          <Link href="/" className="btn-primary mt-6">
+            Analyze a resume
+          </Link>
+        </div>
+      )}
+
+      {/* Content */}
+      {status === "ready" && items.length > 0 && stats && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StatCard icon={BarChart3} label="Total scans" value={String(stats.total)} />
+            <StatCard icon={TrendingUp} label="Average score" value={`${stats.average}`} />
+            <StatCard icon={Award} label="Best score" value={`${stats.best}`} />
+            <StatCard
+              icon={Sparkles}
+              label="Latest score"
+              value={`${stats.latest}`}
+              hint={
+                stats.delta === null ? (
+                  "First scan"
+                ) : stats.delta === 0 ? (
+                  "No change vs previous"
+                ) : (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 font-semibold",
+                      stats.delta > 0 ? "text-green-600" : "text-red-600",
+                    )}
+                  >
+                    {stats.delta > 0 ? (
+                      <TrendingUp className="h-3.5 w-3.5" aria-hidden />
+                    ) : (
+                      <TrendingDown className="h-3.5 w-3.5" aria-hidden />
+                    )}
+                    {stats.delta > 0 ? "+" : ""}
+                    {stats.delta} vs previous
+                  </span>
+                )
+              }
+            />
+          </div>
+
+          {/* Trend chart */}
+          <section className="card" aria-label="Overall match score trend">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-slate-900">Overall match score trend</h2>
+              {chartData.length < 2 && (
+                <span className="text-xs text-slate-500">Run more analyses to see a trend.</span>
+              )}
+            </div>
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 10, right: 16, left: -16, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="scoreFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#0E8F8C" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#0E8F8C" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 12, fill: "#64748b" }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#cbd5e1" }}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    ticks={[0, 25, 50, 75, 100]}
+                    tick={{ fontSize: 12, fill: "#64748b" }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <ReferenceLine
+                    y={75}
+                    stroke="#16a34a"
+                    strokeDasharray="5 5"
+                    label={{
+                      value: "Strong (75+)",
+                      position: "insideTopRight",
+                      fill: "#16a34a",
+                      fontSize: 11,
+                    }}
+                  />
+                  <Tooltip content={<ChartTooltip />} cursor={{ stroke: "#94a3b8", strokeDasharray: "3 3" }} />
+                  <Area
+                    type="monotone"
+                    dataKey="score"
+                    stroke="#0E8F8C"
+                    strokeWidth={2.5}
+                    fill="url(#scoreFill)"
+                    dot={{ r: 3.5, fill: "#0E8F8C", strokeWidth: 0 }}
+                    activeDot={{ r: 6, fill: "#0E8F8C", stroke: "#fff", strokeWidth: 2 }}
+                    isAnimationActive
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </section>
+
+          {/* Clickable list */}
+          <section className="card !p-0 overflow-hidden" aria-label="Past analyses">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4 sm:px-6">
+              <h2 className="text-base font-semibold text-slate-900">
+                Past scans{" "}
+                <span className="font-normal text-slate-400">({filtered.length})</span>
+              </h2>
+              <div className="relative w-full sm:w-64">
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                  aria-hidden
+                />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search title or file…"
+                  aria-label="Search past scans"
+                  className="input !py-2 pl-9"
+                />
+              </div>
+            </div>
+
+            {filtered.length === 0 ? (
+              <p className="p-8 text-center text-sm text-slate-500">No scans match your search.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {filtered.map((item) => {
+                  const tone = getScoreTone(item.overall_match_score);
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(item.id)}
+                        className="flex w-full items-center gap-4 px-4 py-4 text-left transition hover:bg-slate-50 sm:px-6"
+                      >
+                        <span
+                          className={cn(
+                            "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border text-lg font-bold tabular-nums",
+                            tone.bg,
+                            tone.border,
+                            tone.text,
+                          )}
+                          aria-label={`Score ${item.overall_match_score} out of 100`}
+                        >
+                          {item.overall_match_score}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-slate-900">
+                            {item.job_title}
+                          </span>
+                          <span className="block truncate text-xs text-slate-500">
+                            {item.resume_filename}
+                          </span>
+                        </span>
+                        <span className="hidden text-xs text-slate-400 sm:block">
+                          {formatDate(item.created_at, "long")}
+                        </span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+
+      <ReportDrawer
+        open={selectedId !== null}
+        loading={detailLoading}
+        error={detailError}
+        analysis={detail}
+        onClose={closeDrawer}
+        onRetry={() => {
+          if (selectedId) void loadDetail(selectedId);
+        }}
+      />
+    </div>
+  );
+}
