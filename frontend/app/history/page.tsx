@@ -14,10 +14,11 @@ import {
 } from "recharts";
 import {
   AlertCircle,
+  ArrowRight,
   Award,
   BarChart3,
   ChevronRight,
-  Inbox,
+  FileSearch,
   RefreshCw,
   Search,
   Sparkles,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import ReportDrawer from "@/components/ReportDrawer";
 import {
+  ApiError,
   getHistory,
   getHistoryDetail,
   isRequestCanceled,
@@ -65,6 +67,32 @@ function ChartTooltip({
   );
 }
 
+function EmptyState({ endpointMissing }: { endpointMissing: boolean }) {
+  return (
+    <div className="card flex flex-col items-center px-6 py-16 text-center">
+      <span className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-brand-mint text-brand-teal ring-8 ring-teal-50">
+        <FileSearch className="h-8 w-8" aria-hidden />
+      </span>
+      <h2 className="text-xl font-bold text-brand-navy">No Analysis History Yet</h2>
+      <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+        Upload your resume and analyze it against job descriptions to track your match scores over
+        time.
+      </p>
+      <Link href="/" className="btn-primary mt-7">
+        <Sparkles className="h-4 w-4" aria-hidden />
+        Analyze Your First Resume
+        <ArrowRight className="h-4 w-4" aria-hidden />
+      </Link>
+      {endpointMissing && (
+        <p className="mt-6 max-w-md rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          The history service responded with 404. If you have already run analyses, check that
+          NEXT_PUBLIC_API_URL points to your backend.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function StatCard({
   icon: Icon,
   label,
@@ -93,6 +121,7 @@ export default function HistoryPage() {
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [endpointMissing, setEndpointMissing] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AnalysisDetail | null>(null);
@@ -102,12 +131,22 @@ export default function HistoryPage() {
   const loadHistory = useCallback(async (signal?: AbortSignal) => {
     setStatus("loading");
     setError(null);
+    setEndpointMissing(false);
     try {
       const data = await getHistory(100, 0, signal);
-      setItems(data);
+      setItems(Array.isArray(data) ? data : []);
       setStatus("ready");
     } catch (err) {
       if (isRequestCanceled(err)) return;
+      if (err instanceof ApiError && err.status === 404) {
+        // Treat a missing list endpoint as "nothing to show" instead of a red error,
+        // but keep a visible hint so a misconfigured API URL is not silently hidden.
+        console.warn("GET /api/history returned 404. Check NEXT_PUBLIC_API_URL.");
+        setItems([]);
+        setEndpointMissing(true);
+        setStatus("ready");
+        return;
+      }
       setError(err instanceof Error ? err.message : "Failed to load history.");
       setStatus("error");
     }
@@ -228,20 +267,7 @@ export default function HistoryPage() {
       )}
 
       {/* Empty */}
-      {status === "ready" && items.length === 0 && (
-        <div className="card flex flex-col items-center py-14 text-center">
-          <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand-mint text-brand-teal">
-            <Inbox className="h-7 w-7" aria-hidden />
-          </span>
-          <h2 className="text-lg font-semibold text-slate-900">No analyses yet</h2>
-          <p className="mt-1 max-w-sm text-sm text-slate-500">
-            Run your first resume analysis and it will show up here with your score trend.
-          </p>
-          <Link href="/" className="btn-primary mt-6">
-            Analyze a resume
-          </Link>
-        </div>
-      )}
+      {status === "ready" && items.length === 0 && <EmptyState endpointMissing={endpointMissing} />}
 
       {/* Content */}
       {status === "ready" && items.length > 0 && stats && (
