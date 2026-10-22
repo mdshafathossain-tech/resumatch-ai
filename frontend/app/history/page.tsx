@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Area,
@@ -17,13 +17,17 @@ import {
   ArrowRight,
   Award,
   BarChart3,
+  CheckCircle2,
   ChevronRight,
   FileSearch,
+  Loader2,
   RefreshCw,
   Search,
   Sparkles,
+  Trash2,
   TrendingDown,
   TrendingUp,
+  X,
 } from "lucide-react";
 import ReportDrawer from "@/components/ReportDrawer";
 import {
@@ -37,6 +41,12 @@ import {
 import { cn, formatDate, getScoreTone } from "@/lib/utils";
 
 type LoadStatus = "loading" | "ready" | "error";
+
+// Same URL convention as the rest of the app: NEXT_PUBLIC_API_URL, with the deployed API as fallback.
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "https://resumatch-ai-rizc.onrender.com").replace(
+  /\/+$/,
+  "",
+);
 
 interface ChartPoint {
   label: string;
@@ -123,6 +133,11 @@ export default function HistoryPage() {
   const [query, setQuery] = useState("");
   const [endpointMissing, setEndpointMissing] = useState(false);
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AnalysisDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -182,6 +197,65 @@ export default function HistoryPage() {
 
   const closeDrawer = useCallback(() => setSelectedId(null), []);
 
+  useEffect(() => {
+    return () => {
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    };
+  }, []);
+
+  const flashNotice = useCallback((message: string) => {
+    setNotice(message);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 3000);
+  }, []);
+
+  const handleDelete = useCallback(
+    async (item: HistoryItem) => {
+      if (deletingId) return;
+
+      const confirmed = window.confirm(
+        `Delete "${item.job_title}" (${item.resume_filename})?\n\nThis analysis will be permanently removed and cannot be undone.`,
+      );
+      if (!confirmed) return;
+
+      setDeletingId(item.id);
+      setDeleteError(null);
+      try {
+        const response = await fetch(`${API_URL}/api/history/${encodeURIComponent(item.id)}`, {
+          method: "DELETE",
+        });
+
+        // A 404 means the record is already gone on the server, so removing it locally is correct.
+        if (!response.ok && response.status !== 404) {
+          let message = `Could not delete the analysis (status ${response.status}).`;
+          try {
+            const body = (await response.json()) as { detail?: unknown };
+            if (typeof body.detail === "string") message = body.detail;
+          } catch {
+            // response had no JSON body; keep the generic message
+          }
+          throw new Error(message);
+        }
+
+        // Update local state immediately so the row disappears without a reload.
+        setItems((previous) => previous.filter((entry) => entry.id !== item.id));
+        setSelectedId((current) => (current === item.id ? null : current));
+        flashNotice("Analysis deleted.");
+      } catch (err) {
+        setDeleteError(
+          err instanceof TypeError
+            ? "Cannot reach the server. Please check your connection and try again."
+            : err instanceof Error
+              ? err.message
+              : "Could not delete the analysis.",
+        );
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [deletingId, flashNotice],
+  );
+
   // Chart data is chronological (the API returns newest first).
   const chartData: ChartPoint[] = useMemo(
     () =>
@@ -235,6 +309,34 @@ export default function HistoryPage() {
           New analysis
         </Link>
       </div>
+
+      {/* Delete feedback */}
+      {deleteError && (
+        <div
+          role="alert"
+          className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <p className="flex-1">{deleteError}</p>
+          <button
+            type="button"
+            onClick={() => setDeleteError(null)}
+            aria-label="Dismiss error"
+            className="rounded p-0.5 text-red-600 hover:bg-red-100"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      )}
+      {notice && (
+        <div
+          role="status"
+          className="mb-6 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800"
+        >
+          <CheckCircle2 className="h-4 w-4" aria-hidden />
+          {notice}
+        </div>
+      )}
 
       {/* Loading skeleton */}
       {status === "loading" && (
@@ -395,11 +497,11 @@ export default function HistoryPage() {
                 {filtered.map((item) => {
                   const tone = getScoreTone(item.overall_match_score);
                   return (
-                    <li key={item.id}>
+                    <li key={item.id} className="flex items-center transition hover:bg-slate-50">
                       <button
                         type="button"
                         onClick={() => setSelectedId(item.id)}
-                        className="flex w-full items-center gap-4 px-4 py-4 text-left transition hover:bg-slate-50 sm:px-6"
+                        className="flex min-w-0 flex-1 items-center gap-4 py-4 pl-4 pr-2 text-left sm:pl-6"
                       >
                         <span
                           className={cn(
@@ -424,6 +526,20 @@ export default function HistoryPage() {
                           {formatDate(item.created_at, "long")}
                         </span>
                         <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(item)}
+                        disabled={deletingId !== null}
+                        aria-label={`Delete analysis ${item.job_title}`}
+                        title="Delete"
+                        className="mr-3 shrink-0 rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 sm:mr-5"
+                      >
+                        {deletingId === item.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        ) : (
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        )}
                       </button>
                     </li>
                   );

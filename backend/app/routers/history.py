@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict, List
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 
 from app.database import supabase
@@ -34,6 +34,11 @@ def _fetch_one(analysis_id: str) -> List[Dict[str, Any]]:
     return result.data or []
 
 
+def _delete_one(analysis_id: str) -> List[Dict[str, Any]]:
+    result = supabase.table(TABLE).delete().eq("id", analysis_id).execute()
+    return result.data or []
+
+
 @router.get("/history", response_model=List[HistoryItem])
 async def list_history(
     limit: int = Query(50, ge=1, le=100, description="Max records to return"),
@@ -57,3 +62,16 @@ async def get_analysis(analysis_id: UUID) -> AnalysisDetail:
     if not rows:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis not found.")
     return AnalysisDetail.model_validate(rows[0])
+
+
+@router.delete("/history/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_analysis(analysis_id: UUID) -> Response:
+    """Permanently delete one stored analysis. Returns 204, or 404 if it does not exist."""
+    try:
+        deleted = await run_in_threadpool(_delete_one, str(analysis_id))
+    except Exception:
+        logger.exception("Failed to delete analysis %s", analysis_id)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not delete the analysis.")
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
