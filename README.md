@@ -13,7 +13,7 @@ Upload a PDF resume, paste a job description, and get an explainable match score
 [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
 [![Gemini](https://img.shields.io/badge/Google-Gemini-4285F4?logo=googlegemini&logoColor=white)](https://ai.google.dev/)
 
-*AI Capstone Project (Module 27) by **Md. Shafat Hossain** · Mentor: **Sazzad***
+*AI Capstone Project (Module 27) by **Md. Shafat Hossain** · Mentor: **Sazzad Hossain***
 
 </div>
 

@@ -5,12 +5,12 @@
 | | |
 |---|---|
 | **Student** | Md. Shafat Hossain |
-| **Mentor** | Sazzad |
+| **Mentor** | Sazzad Hossain |
 | **Course component** | Module 27: AI Capstone Project |
 | **Date** | October 2026 |
-| **Live application** | `<your-vercel-url>` |
-| **API** | `<your-render-url>` |
-| **Repository** | `<your-github-repo-url>` |
+| **Live application** | https://resumatch-ai-five.vercel.app/ |
+| **API** | https://resumatch-ai-rizc.onrender.com (interactive docs at `/docs`) |
+| **Repository** | https://github.com/mdshafathossain-tech/resumatch-ai |
 
 ---
 
@@ -37,7 +37,7 @@ Employers increasingly screen applications with Applicant Tracking Systems (ATS)
 | O1 | Calibrated 0-100 overall, hard-skill, and soft-skill scores | Delivered |
 | O2 | Missing keywords and prioritized skill gaps | Delivered |
 | O3 | Role-aligned rewrites without fabricated facts, with `[X%]` metric placeholders | Delivered |
-| O4 | Persistent history and score-trend dashboard | Delivered |
+| O4 | Persistent history, score-trend dashboard, and live delete (`DELETE /api/history/{id}`) | Delivered |
 | O5 | Reliability under free-tier AI quotas (retry and model fallback) | Delivered |
 | O6 | Public deployment, documentation, clean repository | Delivered |
 
@@ -74,6 +74,7 @@ The backend follows a layered structure: **routers** (HTTP concerns and error ma
 ### 2.3 Frontend design
 
 - Two routes: `/` (analyze) and `/history` (dashboard). A shared `AnalysisReport` component renders results in both places, and a slide-over drawer shows past reports without leaving the history page.
+- **History management:** each saved analysis has a delete button with a confirmation prompt. On confirmation the client calls `DELETE /api/history/{id}`, and the row, chart, and stats update immediately once the backend returns `204`. Failures keep the row and show an inline error.
 - **Responsive and accessible:** mobile-first Tailwind layouts, keyboard-operable dropzone, ARIA labels on gauges and dialogs, `prefers-reduced-motion` support, color-coded scores that also carry text labels.
 - **Client-side validation mirrors the server** (PDF only, 5 MB, 50-10,000 JD characters) for instant feedback, while the server remains the authority.
 - **Resilient UX:** a 120-second request timeout, staged progress UI, an explanation if processing is slow, and `AbortController` cancellation.
@@ -163,6 +164,7 @@ Scores are model-judged estimates, not statistically validated measurements. The
 |---|---|
 | End-to-end flow (upload, analysis, persistence, response) | Verified with HTTP 200 responses |
 | History list, detail view, and trend chart | Verified end to end |
+| History delete (confirm, `DELETE /api/history/{id}` returns 204, row removed after backend confirmation; 404 and error paths handled) | Verified with a simulated API and unit tests; confirm on the live deployment |
 | Input validation (wrong type, empty file, oversize, invalid PDF, short JD) | Returns the documented 4xx errors |
 | Provider overload (observed HTTP 503 during testing) | Mitigated by the retry and model-fallback layer |
 | Resilience logic (503 to fallback, 404 skip, repeated 429, fenced JSON, 400 fail-fast) | Verified with a simulated provider |
@@ -192,7 +194,7 @@ Scores are model-judged estimates, not statistically validated measurements. The
 | Prompt injection | Role separation, XML boundary tags, tag stripping, strict output validation, length caps, and a model with no tools or network access. |
 | Secrets | `service_role` and Gemini keys exist only in backend environment variables; `.env` files are git-ignored. |
 | Database | RLS enabled on all tables with no `anon` or `authenticated` policies (deny by default), plus `REVOKE ALL` for public roles; only the backend can read or write. |
-| Input handling | UUID-typed path parameters, bounded pagination, parameterized queries through the Supabase client. |
+| Input handling | UUID-typed path parameters (including the delete endpoint), bounded pagination, parameterized queries through the Supabase client. |
 | Error hygiene | Raw provider errors and stack traces stay in server logs; clients receive safe messages. |
 | Privacy | Raw resume text is never stored. |
 
@@ -246,7 +248,7 @@ The `analysis_history` table stores the filename, title, JD, three scores, and t
 
 | Limitation | Detail |
 |---|---|
-| No authentication | History is shared per deployment; avoid sensitive resumes on the public instance. |
+| No authentication | History is shared per deployment, and anyone with the URL can list or delete entries; avoid sensitive resumes on the public instance. |
 | Model-judged scores | Not yet validated on a labeled dataset. |
 | No inbound rate limiting | Only upstream retry handling exists. |
 | Text-based PDFs only | Scanned resumes need OCR. |

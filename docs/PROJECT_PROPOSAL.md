@@ -5,7 +5,10 @@
 | | |
 |---|---|
 | **Student** | Md. Shafat Hossain |
-| **Mentor** | Sazzad |
+| **Mentor** | Sazzad Hossain |
+| **Live app** | https://resumatch-ai-five.vercel.app/ |
+| **Backend API** | https://resumatch-ai-rizc.onrender.com (interactive docs at `/docs`) |
+| **Repository** | https://github.com/mdshafathossain-tech/resumatch-ai |
 | **Course component** | Module 27: AI Capstone Project |
 | **Date** | October 2026 |
 
@@ -36,7 +39,7 @@ The result is wasted applications, lower confidence, and an advantage for candid
 | O1 | Accept a PDF resume and a JD and return a calibrated 0-100 match score with hard-skill and soft-skill sub-scores. |
 | O2 | Identify missing keywords and prioritized skill gaps relative to the JD. |
 | O3 | Generate role-aligned bullet rewrites that never fabricate facts and flag where a real metric should be added (`[X%]`). |
-| O4 | Persist every analysis and visualize score trends over time. |
+| O4 | Persist every analysis, visualize score trends over time, and let users delete saved analyses (full create, read, delete on the history dashboard). |
 | O5 | Remain reliable under free-tier AI quotas through retries and automatic model fallback. |
 | O6 | Be deployed publicly (Vercel + Render) with documentation and a clean repository. |
 
